@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>لوحة إدارة البلاغات</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@600;700;800;900&family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<aside class="sidebar">
+  <div class="side-brand">
+    <div class="logo">ب</div>
+    <div>
+      <h1>إدارة البلاغات</h1>
+      <span>SLA & Reminders</span>
+    </div>
+  </div>
+
+  <nav class="side-nav">
+    <a class="nav-item active" data-view="all"><span class="ni">▦</span> كل البلاغات <b id="navCountAll">0</b></a>
+    <a class="nav-item alert" data-view="due"><span class="ni">⏰</span> يحتاج ردًا قريبًا <b id="navCountDue">0</b></a>
+    <a class="nav-item danger" data-view="overdue"><span class="ni">⚠</span> متأخرة <b id="navCountOver">0</b></a>
+    <a class="nav-item" data-view="resolved"><span class="ni">✓</span> تم معالجتها <b id="navCountRes">0</b></a>
+  </nav>
+
+  <div class="side-sla">
+    <div class="sla-title">مهلة الرد الافتراضية</div>
+    <div class="sla-row">
+      <input type="number" id="slaDays" min="1" max="30" value="3">
+      <span>أيام لكل بلاغ جديد</span>
+    </div>
+    <p class="sla-hint">تُستخدم لحساب موعد الرد تلقائيًا لو ما حددته يدويًا.</p>
+  </div>
+
+  <div class="side-foot">
+    <button class="btn ghost sm block" id="btnNotify">🔔 تفعيل تنبيهات المتصفح</button>
+    <p class="build">يعمل بـ Node.js — البيانات محفوظة محليًا</p>
+  </div>
+</aside>
+
+<main class="main">
+  <header class="topbar">
+    <div>
+      <h2 id="pageTitle">لوحة المتابعة</h2>
+      <p class="crumb" id="pageSub">نظرة عامة على كل البلاغات ومواعيد الرد</p>
+    </div>
+    <div class="actions">
+      <button class="btn ghost" id="btnSample">✨ بيانات تجريبية</button>
+      <button class="btn" id="btnImport">⬇ استيراد</button>
+      <button class="btn" id="btnExport">⬆ تصدير CSV</button>
+      <button class="btn primary" id="btnAdd">＋ بلاغ جديد</button>
+    </div>
+  </header>
+
+  <!-- شريط التنبيهات -->
+  <section class="alert-strip" id="alertStrip" style="display:none"></section>
+
+  <!-- مؤشرات -->
+  <section class="kpis" id="kpis"></section>
+
+  <!-- شارتات -->
+  <section class="charts">
+    <div class="card chart-card"><h3>توزيع الحالات</h3><div class="chart-box sm"><canvas id="statusChart"></canvas></div></div>
+    <div class="card chart-card"><h3>حسب وسيلة الدفع</h3><div class="chart-box sm"><canvas id="payChart"></canvas></div></div>
+    <div class="card chart-card wide"><h3>البلاغات عبر الزمن</h3><div class="chart-box sm"><canvas id="trendChart"></canvas></div></div>
+  </section>
+
+  <!-- أدوات -->
+  <section class="toolbar">
+    <div class="search">
+      <span class="si">🔍</span>
+      <input id="search" placeholder="بحث برقم البلاغ، رقم الطلب، اسم العميل، أو الجوال...">
+    </div>
+    <select class="fl" id="fStatus">
+      <option value="">كل الحالات</option>
+      <option>لم يتم الرد</option><option>تم الرد</option><option>تم تأجيله</option>
+      <option>تم معالجته</option><option>مخالفة</option><option>قضية</option>
+    </select>
+    <select class="fl" id="fPay"><option value="">كل وسائل الدفع</option></select>
+    <select class="fl" id="fSource">
+      <option value="">كل المصادر</option>
+      <option>وزارة التجارة</option><option>سلة</option><option>تمارا</option><option>تابي</option><option>أخرى</option>
+    </select>
+    <select class="fl" id="fSort">
+      <option value="due_asc">الأقرب موعدًا للرد</option>
+      <option value="date_desc">الأحدث بلاغًا</option>
+      <option value="date_asc">الأقدم بلاغًا</option>
+      <option value="amount_desc">المبلغ (تنازلي)</option>
+      <option value="amount_asc">المبلغ (تصاعدي)</option>
+    </select>
+    <button class="btn sm ghost" id="btnClear">مسح</button>
+    <span class="count-tag" id="countTag"></span>
+  </section>
+
+  <!-- الجدول -->
+  <section class="card table-card">
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th class="col-sla">مؤشر الرد</th>
+            <th>رقم البلاغ</th>
+            <th>رقم الطلب</th>
+            <th>اسم العميل</th>
+            <th>رقم الجوال</th>
+            <th>وسيلة الدفع</th>
+            <th class="sortable" data-sort="amount">المبلغ</th>
+            <th>حالة البلاغ</th>
+            <th>المصدر</th>
+            <th class="sortable" data-sort="date">تاريخ البلاغ</th>
+            <th class="sortable" data-sort="due">تاريخ الرد القادم</th>
+            <th>تاريخ الوصول/التحويل</th>
+            <th>موقف العميل</th>
+            <th>ملاحظة</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+    <div class="empty" id="emptyState" style="display:none">
+      <div class="big">📭</div>
+      <h3>لا توجد بلاغات هنا</h3>
+      <p>أضف بلاغًا جديدًا أو استورد بياناتك من ملف CSV.</p>
+    </div>
+  </section>
+</main>
+
+<!-- نموذج إضافة/تعديل -->
+<div class="overlay" id="formOverlay">
+  <div class="modal">
+    <div class="modal-head">
+      <h2 id="formTitle">بلاغ جديد</h2>
+      <button class="close-x" data-close>✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="grid2">
+        <div class="field"><label>رقم البلاغ <span class="req">*</span></label><input id="f_reportNo"></div>
+        <div class="field"><label>رقم الطلب</label><input id="f_orderNo"></div>
+        <div class="field"><label>اسم العميل <span class="req">*</span></label><input id="f_customer"></div>
+        <div class="field"><label>رقم الجوال</label><input id="f_phone" inputmode="tel"></div>
+        <div class="field"><label>وسيلة الدفع</label>
+          <input id="f_payMethod" list="payList" placeholder="مدى / فيزا / تابي / تمارا / تحويل بنكي...">
+          <datalist id="payList">
+            <option>مدى</option><option>فيزا</option><option>ماستر كارد</option><option>Apple Pay</option>
+            <option>تابي</option><option>تمارا</option><option>تحويل بنكي</option><option>الدفع عند الاستلام</option>
+          </datalist>
+        </div>
+        <div class="field"><label>مبلغ الدفع (ر.س)</label><input id="f_amount" inputmode="decimal"></div>
+        <div class="field"><label>حالة البلاغ <span class="req">*</span></label>
+          <select id="f_status">
+            <option>لم يتم الرد</option><option>تم الرد</option><option>تم تأجيله</option>
+            <option>تم معالجته</option><option>مخالفة</option><option>قضية</option>
+          </select>
+        </div>
+        <div class="field"><label>المصدر</label>
+          <select id="f_source">
+            <option value="">— اختر —</option>
+            <option>وزارة التجارة</option><option>سلة</option><option>تمارا</option><option>تابي</option><option>أخرى</option>
+          </select>
+        </div>
+        <div class="field"><label>موقف العميل</label><input id="f_customerStance" placeholder="مثال: مطالب باسترداد المبلغ"></div>
+        <div class="field"><label>تاريخ البلاغ</label><input id="f_reportDate" type="date"></div>
+        <div class="field"><label>تاريخ الرد القادم <span class="hint-inline">(موعد الاستحقاق)</span></label><input id="f_nextReplyDate" type="date"></div>
+        <div class="field"><label>تاريخ وصول الطلب / التحويل</label><input id="f_arrivalDate" type="date"></div>
+        <div class="field full"><label>ملاحظة</label><textarea id="f_note"></textarea></div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn primary" id="btnSave">حفظ البلاغ</button>
+      <button class="btn ghost" data-close>إلغاء</button>
+    </div>
+  </div>
+</div>
+
+<!-- نموذج الاستيراد -->
+<div class="overlay" id="importOverlay">
+  <div class="modal">
+    <div class="modal-head"><h2>استيراد بلاغات</h2><button class="close-x" data-close>✕</button></div>
+    <div class="modal-body">
+      <div class="imp-step">
+        <span class="n">1</span><h4>نزّل القالب</h4>
+        <p>ملف CSV بنفس ترتيب الأعمدة المطلوب — عبّيه أو الصق فيه بيانات Gmail ثم ارفعه.</p>
+        <button class="btn sm indent" id="btnTemplate">📄 تنزيل القالب (CSV)</button>
+      </div>
+      <div class="imp-step">
+        <span class="n">2</span><h4>ارفع الملف</h4>
+        <p>البلاغات المكررة (نفس رقم البلاغ) يتم تحديثها تلقائيًا.</p>
+        <div class="drop" id="dropZone">📎 اضغط لاختيار ملف CSV<input type="file" id="fileInput" accept=".csv,text/csv" hidden></div>
+      </div>
+      <div class="imp-step">
+        <span class="n">3</span><h4>أو الصق مباشرة</h4>
+        <p>انسخ الجدول من Gmail / Excel والصقه (أول سطر = أسماء الأعمدة).</p>
+        <textarea id="pasteArea" placeholder="رقم البلاغ,رقم الطلب,اسم العميل,..."></textarea>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn primary" id="btnDoPaste">استيراد المُلصَق</button>
+      <button class="btn ghost" data-close>إغلاق</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
